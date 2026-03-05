@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅行分帳｜永久儲存版</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+body{background:#f7f8fa;padding:20px;max-width:600px;margin:0 auto}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+h1{font-size:20px;margin-bottom:16px;color:#222}
+h2{font-size:16px;margin:12px 0 8px;color:#444}
+label{font-size:14px;color:#555;display:block;margin-top:6px}
+input,select{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;margin:6px 0 10px;font-size:15px}
+button{width:100%;padding:11px;border:none;border-radius:8px;background:#007aff;color:#fff;font-weight:500;margin-top:6px}
+button.danger{background:#ff3b30}
+.btn-add{background:#34c759}
+.item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:14px}
+.total{font-weight:bold;font-size:16px;color:#222;margin-top:10px}
+.person-result{margin-top:8px;font-size:15px;padding:4px 0}
+.name-highlight{color:#007aff;font-weight:500}
+.add-person{display:grid;grid-template-columns:1fr 60px;gap:8px}
+.participants{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.pill{padding:6px 10px;background:#f0f0f5;border-radius:20px;font-size:14px;display:flex;align-items:center;gap:6px}
+.pill input{margin:0;width:auto}
+.pill label{margin:0}
+.people-tag{display:inline-block;background:#e1f5fe;padding:4px 8px;border-radius:6px;margin:2px;font-size:13px}
+.row{display:flex;align-items:center;gap:8px}
+.del-btn{color:#ff3b30;font-size:16px;background:none;border:none;padding:0 4px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>旅行分帳｜永久儲存版</h1>
+  
+  <div class="row">
+    <label style="margin:0">啟用匯率轉換</label>
+    <input type="checkbox" id="useRate" checked>
+  </div>
+
+  <label>結算貨幣</label>
+  <select id="baseCurrency">
+    <option value="HKD">港幣 HKD</option>
+    <option value="TWD">台幣 TWD</option>
+    <option value="CNY">人民幣 CNY</option>
+  </select>
+
+  <label>成員（無上限）</label>
+  <div class="add-person">
+    <input type="text" id="newPerson" placeholder="輸入名字">
+    <button class="btn-add" onclick="addPerson()">+</button>
+  </div>
+  <div id="peopleList"></div>
+</div>
+
+<div class="card">
+  <h2>新增消費</h2>
+  <label>金額</label>
+  <input type="number" id="amount" placeholder="輸入數字" step="0.01">
+
+  <label>貨幣</label>
+  <select id="costCurrency">
+    <option value="JPY">日圓 JPY</option>
+    <option value="HKD">港幣 HKD</option>
+    <option value="TWD">台幣 TWD</option>
+    <option value="CNY">人民幣 CNY</option>
+    <option value="USD">美金 USD</option>
+    <option value="KRW">韓圓 KRW</option>
+    <option value="THB">泰銖 THB</option>
+  </select>
+
+  <label>備註（可空）</label>
+  <input type="text" id="note" placeholder="晚餐/門票/交通等">
+
+  <label>付款人</label>
+  <select id="paidBy"></select>
+
+  <label>參加分攤的人</label>
+  <div id="participantsChecklist"></div>
+
+  <button onclick="addExpense()">加入記錄</button>
+</div>
+
+<div class="card">
+  <h2>消費記錄</h2>
+  <div id="expenseList"></div>
+
+  <div class="total">總花費：<span id="total">0</span></div>
+  <div class="total" style="margin-top:12px">各人最終結算</div>
+  <div id="summary"></div>
+
+  <button class="danger" onclick="clearAll()">清空所有資料（包括儲存）</button>
+</div>
+
+<script>
+let rates = {
+  HKD: 1,
+  USD: 7.8,
+  JPY: 0.052,
+  TWD: 0.25,
+  CNY: 1.1,
+  KRW: 0.0058,
+  THB: 0.22
+}
+
+let people = []
+let expenses = []
+let personId = 1
+
+// ====== 儲存功能 ======
+function saveAll() {
+  localStorage.setItem('tripPeople', JSON.stringify(people))
+  localStorage.setItem('tripExpenses', JSON.stringify(expenses))
+  localStorage.setItem('tripPersonId', personId)
+}
+
+function loadAll() {
+  const p = localStorage.getItem('tripPeople')
+  const e = localStorage.getItem('tripExpenses')
+  const id = localStorage.getItem('tripPersonId')
+  if (p) people = JSON.parse(p)
+  if (e) expenses = JSON.parse(e)
+  if (id) personId = parseInt(id)
+  renderPeople()
+  refreshPaidByAndParticipants()
+  renderExpenses()
+  updateSummary()
+}
+
+// ====== 人名 ======
+function addPerson() {
+  const name = document.getElementById('newPerson').value.trim()
+  if (!name) return
+  people.push({ id: personId++, name })
+  document.getElementById('newPerson').value = ''
+  renderPeople()
+  refreshPaidByAndParticipants()
+  updateSummary()
+  saveAll()
+}
+
+function renderPeople() {
+  const el = document.getElementById('peopleList')
+  el.innerHTML = ''
+  people.forEach(p => {
+    const span = document.createElement('span')
+    span.className = 'people-tag'
+    span.textContent = p.name
+    el.appendChild(span)
+  })
+}
+
+function refreshPaidByAndParticipants() {
+  const paidByEl = document.getElementById('paidBy')
+  paidByEl.innerHTML = ''
+  people.forEach(p => {
+    const opt = document.createElement('option')
+    opt.value = p.id
+    opt.textContent = p.name
+    paidByEl.appendChild(opt)
+  })
+  renderParticipantsChecklist()
+}
+
+function renderParticipantsChecklist() {
+  const el = document.getElementById('participantsChecklist')
+  el.innerHTML = ''
+  people.forEach(p => {
+    const div = document.createElement('div')
+    div.className = 'pill'
+    div.innerHTML = `<input type="checkbox" id="p_${p.id}" checked><label for="p_${p.id}">${p.name}</label>`
+    el.appendChild(div)
+  })
+}
+
+function getSelectedParticipants() {
+  return people.filter(p => document.getElementById(`p_${p.id}`)?.checked)
+}
+
+// ====== 消費 ======
+function addExpense() {
+  const amt = parseFloat(document.getElementById('amount').value)
+  const cur = document.getElementById('costCurrency').value
+  const note = document.getElementById('note').value.trim()
+  const paidById = parseInt(document.getElementById('paidBy').value)
+  const parts = getSelectedParticipants()
+  if (!amt || amt <= 0 || parts.length === 0) return
+
+  const useRate = document.getElementById('useRate').checked
+  const hkd = useRate ? amt * rates[cur] : amt
+
+  expenses.push({
+    amt, cur, note, hkd, paidById, parts: parts.map(p => p.id)
+  })
+
+  document.getElementById('amount').value = ''
+  document.getElementById('note').value = ''
+  renderExpenses()
+  updateSummary()
+  saveAll()
+}
+
+function deleteExpense(index) {
+  expenses.splice(index, 1)
+  renderExpenses()
+  updateSummary()
+  saveAll()
+}
+
+function renderExpenses() {
+  const el = document.getElementById('expenseList')
+  el.innerHTML = ''
+  expenses.forEach((ex, index) => {
+    const payer = people.find(p => p.id === ex.paidById)?.name || '?'
+    const note = ex.note ? `(${ex.note})` : ''
+    const div = document.createElement('div')
+    div.className = 'item'
+    div.innerHTML = `
+      <span>${ex.amt} ${ex.cur} ${note}</span>
+      <div>
+        <span>${payer}</span>
+        <button class="del-btn" onclick="deleteExpense(${index})">✕</button>
+      </div>
+    `
+    el.appendChild(div)
+  })
+}
+
+// ====== 結算 ======
+function updateSummary() {
+  const base = document.getElementById('baseCurrency').value
+  const useRate = document.getElementById('useRate').checked
+  const hkdToBase = useRate ? 1 / rates[base] : 1
+
+  const totalHkd = expenses.reduce((s, e) => s + e.hkd, 0)
+  document.getElementById('total').textContent = (totalHkd * hkdToBase).toFixed(2) + ' ' + base
+
+  const summaryEl = document.getElementById('summary')
+  summaryEl.innerHTML = ''
+
+  const userMap = {}
+  people.forEach(p => { userMap[p.id] = { paid: 0, share: 0 } })
+
+  expenses.forEach(e => {
+    const pid = e.paidById
+    userMap[pid].paid += e.hkd
+    const cnt = e.parts.length
+    const each = e.hkd / cnt
+    e.parts.forEach(uid => { if (userMap[uid]) userMap[uid].share += each })
+  })
+
+  people.forEach(p => {
+    const d = userMap[p.id]
+    if (!d) return
+    const paid = d.paid * hkdToBase
+    const share = d.share * hkdToBase
+    const diff = paid - share
+
+    const line = document.createElement('div')
+    line.className = 'person-result'
+    let txt = `<span class="name-highlight">${p.name}</span>：`
+    if (diff > 0.01) txt += `應收 ${diff.toFixed(2)}`
+    else if (diff < -0.01) txt += `應付 ${(-diff).toFixed(2)}`
+    else txt += '已平'
+    line.innerHTML = txt
+    summaryEl.appendChild(line)
+  })
+}
+
+// ====== 清空 ======
+function clearAll() {
+  people = []
+  expenses = []
+  personId = 1
+  document.getElementById('peopleList').innerHTML = ''
+  document.getElementById('expenseList').innerHTML = ''
+  document.getElementById('participantsChecklist').innerHTML = ''
+  document.getElementById('paidBy').innerHTML = ''
+  updateSummary()
+  localStorage.clear()
+}
+
+document.getElementById('useRate').addEventListener('change', () => {
+  updateSummary()
+  saveAll()
+})
+document.getElementById('baseCurrency').addEventListener('change', () => {
+  updateSummary()
+  saveAll()
+})
+
+// 開啟時自動還原
+loadAll()
+</script>
+</body>
+</html>
